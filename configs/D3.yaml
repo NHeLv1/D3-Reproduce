@@ -1,0 +1,13 @@
+model: 'D3'
+tuning_mode: 'sft'
+task: 'normal'  # normal, hard, all
+
+save_dir: './results/XCLIP_D3'
+
+max_epoch: 30
+bath_per_epoch: 4000
+
+train_batch_size: 128
+val_batch_size: 8
+num_workers: 64
+lr: 0.000001
