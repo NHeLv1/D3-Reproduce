@@ -29,7 +29,7 @@ def build_model(model_name):
     
     return model
 
-def eval_model(cfg, model, val_loader, loss_ce, val_batch_size):
+def eval_model(cfg, model, val_loader, loss_ce, val_batch_size, th=0.5):
     model.eval()
     outpred_list = []
     gt_label_list = []
@@ -64,7 +64,7 @@ def eval_model(cfg, model, val_loader, loss_ce, val_batch_size):
     outpred = np.concatenate(outpred_list, 0)
     gt_label = np.concatenate(gt_label_list, 0)
     video_list = np.concatenate(video_list, 0)
-    pred_labels = [1 if item > 0.5 else 0 for item in outpred]
+    pred_labels = [1 if item > th else 0 for item in outpred]
     true_labels = np.argmax(gt_label, axis=1)
 
     pred_accuracy = accuracy_score(true_labels, pred_labels)

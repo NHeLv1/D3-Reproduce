@@ -9,7 +9,8 @@ from dataloader import generate_dataset_loader
 import torch.nn as nn
 from torch.optim.lr_scheduler import StepLR, LambdaLR, MultiStepLR
 import pandas as pd
-from sklearn.metrics import roc_auc_score, average_precision_score
+from sklearn.metrics import roc_auc_score, average_precision_score, precision_recall_fscore_support
+import matplotlib.pyplot as plt
 
 
 def get_arguments():
@@ -45,11 +46,12 @@ if __name__ == '__main__':
         os.makedirs(snapshot_path)
 
     max_epoch, max_acc = 0, 0
+    th = 0.7
 
     for epochID in range(0, trMaxEpoch):
         print("******* Building datasets. *******")
         train_loader, val_loader = generate_dataset_loader(cfg)
-        pred_accuracy, video_id, pred_labels, true_labels, outpred = eval_model(cfg, model, val_loader, loss, cfg['val_batch_size'])
+        pred_accuracy, video_id, pred_labels, true_labels, outpred = eval_model(cfg, model, val_loader, loss, cfg['val_batch_size'], th=th)
 
         df_result = pd.DataFrame({
             'data_path': video_id,
@@ -64,6 +66,7 @@ if __name__ == '__main__':
             pred_probs = df_result['predicted_prob'] 
             auc = roc_auc_score(true_labels, pred_probs)
             ap = average_precision_score(true_labels, pred_probs)
+            file.write(f"=============================阈值设为: {th}=============================\n")
             file.write(f"总正确率: {pred_accuracy:.2%}\n")
             file.write(f"AUC是: {auc:.2%}\n")
             file.write(f"AP是: {ap:.2%}\n")
@@ -76,33 +79,67 @@ if __name__ == '__main__':
         video_nums = [700, 700, 626, 700, 700, 56, 926, 1400, 1400, 1380]
 
         # real 
-        condition = df_result['data_path'].apply(lambda x: "/Real/" in x)
-        temp_df_val = df_result[condition]
-        temp_df_val['correct'] = temp_df_val['predicted_label'] == temp_df_val['actual_label']
-        # print(temp_df_val['predicted_label'], temp_df_val['actual_label'])  # --- IGNORE ---
-        accuracy = temp_df_val['correct'].mean()
+        real_condition = df_result['data_path'].apply(lambda x: "/Real/" in x or x.startswith('real') or x.startswith('Real'))
+        real_df = df_result[real_condition].copy()
 
-        FP = int((1-accuracy) * 10000)
 
-        for index, temp_prefixes in enumerate(prefixes):
-            condition = df_result['data_path'].apply(lambda x: temp_prefixes in x)
-            temp_df_val = df_result[condition]
-            temp_df_val['correct'] = temp_df_val['predicted_label'] == temp_df_val['actual_label']
-            accuracy = temp_df_val['correct'].mean()
+        for temp_prefix in prefixes:
+            # Fake 子集
+            fake_condition = df_result['data_path'].apply(lambda x: temp_prefix in x)
+            fake_df = df_result[fake_condition].copy()
 
-            TP = int(accuracy * video_nums[index])
-            FN = int((1-accuracy) * video_nums[index])
-            P, R = TP / (TP + FP), TP / (TP + FN)
-            F1 = 2 * P * R / (P + R)
+            # 若没有 fake 样本，跳过（或记录为 nan）
+            if fake_df.empty:
+                with open(temp_result_txt, 'a') as file:
+                    name = temp_prefix.split('/')[-1]
+                    file.write(f"文件名: {name}, Recall是: {float('nan')}\n")
+                    file.write(f"文件名: {name}, F1是: {float('nan')}\n")
+                    file.write(f"文件名: {name}, AP是: {float('nan')}\n")
+                continue
 
-            condition |= df_result['data_path'].str.startswith('real')
-            temp_df_val = df_result[condition]
-            true_labels = temp_df_val['actual_label']
-            pred_probs = temp_df_val['predicted_prob']  # 假设这是模型预测的概率
-            ap = average_precision_score(true_labels, pred_probs)
+            # 合并 fake 子集 + 所有 real 样本
+            combined_df = pd.concat([fake_df, real_df], ignore_index=True)
+            # y_true, y_pred, y_prob
+            y_true = combined_df['actual_label'].astype(int)
+            y_pred = combined_df['predicted_label'].astype(int)
+            y_prob = combined_df['predicted_prob'].astype(float)
+
+            # 计算 precision/recall/f1（把正类 pos_label 设为 1，表示 fake 为正类）
+            precision, recall, f1, _ = precision_recall_fscore_support(
+                y_true, y_pred, average='binary', pos_label=1, zero_division=0
+            )
+
+            # AP（对 combined 计算）
+            try:
+                ap = average_precision_score(y_true, y_prob)
+            except Exception:
+                ap = float('nan')
+
+            name = temp_prefix.split('/')[-1]
             with open(temp_result_txt, 'a') as file:
-                name = temp_prefixes.split('/')[-1]
-                file.write(f"文件名: {name}, Recall是: {accuracy}\n")
-                file.write(f"文件名: {name}, F1是: {F1}\n")
+                file.write(f"文件名: {name}, Recall是: {recall}\n")
+                file.write(f"文件名: {name}, F1是: {f1}\n")
                 file.write(f"文件名: {name}, AP是: {ap}\n")
+            
 
+            # =============================== 绘制直方图 ===============================
+            plt.figure(figsize=(6, 4))
+            plt.hist(
+                y_prob[y_true == 0],
+                bins=30, alpha=0.6, color='skyblue', label='Real (label=0)'
+            )
+            plt.hist(
+                y_prob[y_true == 1],
+                bins=30, alpha=0.6, color='salmon', label='Fake (label=1)'
+            )
+            plt.title(f"Epoch {epochID} - {name} Probability Distribution")
+            plt.xlabel("Predicted Probability")
+            plt.ylabel("Count")
+            plt.legend()
+            plt.grid(alpha=0.3)
+
+            # 保存直方图
+            hist_path = os.path.join(snapshot_path, f"Epoch_{epochID}_{name}_hist.png")
+            plt.tight_layout()
+            plt.savefig(hist_path, dpi=200)
+            plt.close()
