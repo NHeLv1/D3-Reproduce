@@ -1,6 +1,6 @@
 # Reproducing D3
 
-[D3: Training-Free AI-Generated Video Detection Using Second-Order Features](https://arxiv.org/pdf/2508.00701)
+复现[D3: Training-Free AI-Generated Video Detection Using Second-Order Features](https://arxiv.org/pdf/2508.00701)的尝试
 
 python D3_detection.py --config=configs/D3.yaml
 
