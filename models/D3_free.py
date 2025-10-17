@@ -1,4 +1,5 @@
 from transformers import XCLIPVisionModel
+# from transformers.models.x_clip.modeling_x_clip import XCLIPVisionModel
 import os
 import sys
 import numpy as np
@@ -9,7 +10,6 @@ import torch.nn.functional as F
 import torch.nn.init as init
 import math
 
-from transformers import XCLIPVisionModel
 class D3(nn.Module):
     def __init__(
         self, channel_size=512, dropout=0.2, class_num=1
