@@ -1,0 +1,14 @@
+model: 'D3'
+tuning_mode: 'sft'
+task: 'normal'  # normal, hard, all
+
+save_dir: './results/XCLIP_D3_MultiGPU'
+
+max_epoch: 30
+bath_per_epoch: 4000
+
+# Adjusted batch sizes for multi-GPU training
+train_batch_size: 32  # Per GPU batch size
+val_batch_size: 4     # Per GPU batch size
+num_workers: 16       # Will be divided by world_size
+lr: 0.000001

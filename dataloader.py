@@ -1,5 +1,6 @@
 import torch.utils.data as data
 from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.distributed import DistributedSampler
 import pandas as pd
 import torch
 import albumentations
@@ -225,7 +226,8 @@ class Ours_Dataset_val(data.Dataset):
 
 
 
-def generate_dataset_loader(cfg):
+def generate_dataset_loader_ddp(cfg, world_size, rank):
+    """Generate dataset loaders for distributed training."""
     try:
         df_train = pd.read_csv('GenVideo/datasets/train.csv')
     except:
@@ -269,7 +271,7 @@ def generate_dataset_loader(cfg):
     else:
         df_val = pd.read_csv('GenVideo/datasets/val_ood.csv')
 
-    if df_train:
+    if df_train is not None:
         df_train.reset_index(drop=True, inplace=True)
 
     df_val.reset_index(drop=True, inplace=True)
@@ -278,21 +280,40 @@ def generate_dataset_loader(cfg):
     index_val = index_val[:]
 
     val_dataset = Ours_Dataset_val(cfg, index_val, df_val)
+    
+    # Use DistributedSampler for validation
+    val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank, shuffle=False)
     val_loader = torch.utils.data.DataLoader(
-            val_dataset, batch_size=cfg['val_batch_size'], shuffle=False, num_workers=cfg['num_workers'], pin_memory=True, drop_last=False
-        )
+        val_dataset, 
+        batch_size=cfg['val_batch_size'], 
+        sampler=val_sampler,
+        num_workers=cfg['num_workers'] // world_size, 
+        pin_memory=True, 
+        drop_last=False
+    )
 
     train_loader = None
-    if df_train:
+    if df_train is not None:
         index_train = df_train.index.tolist()
         index_train = index_train[:]
         train_dataset = Ours_Dataset_train(index_train, df_train)
+        
+        # Use DistributedSampler for training
+        train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank, shuffle=True)
         train_loader = torch.utils.data.DataLoader(
-                train_dataset, batch_size=cfg['train_batch_size'], shuffle=True, num_workers=cfg['num_workers'], pin_memory=True, drop_last=True
-            )
+            train_dataset, 
+            batch_size=cfg['train_batch_size'], 
+            sampler=train_sampler,
+            num_workers=cfg['num_workers'] // world_size, 
+            pin_memory=True, 
+            drop_last=True
+        )
 
-        print("******* Training Video IDs", str(len(index_train))," Training Batch size ", str(cfg['train_batch_size'])," *******")
-    print("******* Testing Video IDs", str(len(index_val)), " Testing Batch size ", str(cfg['val_batch_size'])," *******")
+        if rank == 0:
+            print("******* Training Video IDs", str(len(index_train))," Training Batch size ", str(cfg['train_batch_size'])," *******")
+    
+    if rank == 0:
+        print("******* Testing Video IDs", str(len(index_val)), " Testing Batch size ", str(cfg['val_batch_size'])," *******")
 
     return train_loader, val_loader
 
